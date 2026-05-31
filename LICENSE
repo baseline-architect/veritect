@@ -1,0 +1,62 @@
+Business Source License 1.1
+
+Parameters
+
+Licensor:             Veritect Contributors
+Licensed Work:        Veritect — Enterprise Database Schema Drift Engine
+                      (https://github.com/veritect/veritect)
+Change Date:          2030-05-31
+Change License:       Apache License, Version 2.0
+
+Notice
+
+The Business Source License (this document, or the "License") is not an Open
+Source license. However, the Licensed Work will eventually be made available
+under an Open Source License, as stated in this License.
+
+License text copyright (c) 2023 MariaDB Corporation Ab, All Rights Reserved.
+"Business Source License" is a trademark of MariaDB Corporation Ab.
+
+Additional Use Grant
+
+You may make use of the Licensed Work, provided that you do not use the
+Licensed Work to offer a competing database schema drift detection or schema
+change management service to third parties, whether as a hosted or managed
+service, software-as-a-service, platform-as-a-service, or similar commercial
+offering where the Licensed Work constitutes a material part of the value
+proposition. Internal use, non-commercial use, use by educational institutions,
+and use for evaluation purposes are explicitly permitted without restriction.
+
+Terms
+
+The Licensor grants you a non-exclusive, limited license to use the Licensed
+Work, subject to the restrictions in this License and the Additional Use Grant.
+
+You may copy, modify, create derivative works, and distribute the Licensed Work,
+provided that:
+
+  (a) each copy contains the above copyright notice and this License;
+  (b) you do not remove or alter any proprietary notices contained in the
+      Licensed Work; and
+  (c) you comply with all terms of this License.
+
+On the Change Date, the Licensed Work will change its license to the Change
+License. At that time, the Licensed Work will be available under the terms of
+the Change License without the restrictions of this License or the Additional
+Use Grant.
+
+Trademarks
+
+This License does not grant permission to use the trade names, trademarks,
+service marks, or product names of the Licensor, except as required for
+reasonable and customary use in describing the origin of the Licensed Work.
+
+Disclaimer
+
+THE LICENSED WORK IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE LICENSED WORK OR THE USE OR OTHER DEALINGS IN THE LICENSED
+WORK.
