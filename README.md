@@ -1,45 +1,20 @@
 # Veritect
 
-**Enterprise Database Schema Drift Engine**
+## Product Classification
 
-Veritect is a headless, production-grade Go application designed to detect database schema drift in CI/CD pipelines. It computes a deterministic SHA-256 fingerprint of your PostgreSQL schema and fails the build when an unexpected structural change is introduced.
+Veritect is a stateless, zero-trust schema drift detection utility for automated deployment workflows. It is engineered to ensure the integrity and stability of database schemas in continuous integration environments.
 
----
+## Architecture & Security Model
 
-## Why Veritect
+Veritect operates under a strict zero-trust posture. It processes only structural database metadata (information_schema) natively within the runner environment, ensuring absolute separation from application data records. Database credentials remain securely within the execution environment and are never transmitted externally.
 
-In fast-moving engineering teams, schema changes can slip into production unnoticed. Veritect treats your database schema as versioned infrastructure: it snapshots the canonical structure, stores a baseline in `veritect.lock`, and raises a hard failure on any drift. Zero cost, zero runtime overhead, zero surprises.
+## The Deterministic Core
 
----
+Veritect employs an alphabetical sorting constraint to guarantee zero false-positive build failures. This deterministic approach ensures consistent and reliable detection of schema drift, maintaining operational continuity.
 
-## Quick Start
+## Continuous Integration Specification
 
-```bash
-# 1. Set environment variables
-export DATABASE_URL="postgres://user:pass@localhost:5432/dbname"
-export SLACK_WEBHOOK="https://hooks.slack.com/services/..."  # optional
-
-# 2. Initialize baseline (creates veritect.lock)
-go run ./cmd/veritect
-
-# 3. On subsequent runs, any schema drift exits with code 1
-go run ./cmd/veritect
-```
-
----
-
-## Environment Variables
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `DATABASE_URL` | Yes | PostgreSQL connection string (libpq format) |
-| `SLACK_WEBHOOK` | No | Slack Incoming Webhook URL for drift alerts |
-
----
-
-## CI Integration
-
-Add Veritect to any GitHub Actions pipeline as a zero-dependency step:
+Below is an example of integrating Veritect within a GitHub Actions pipeline:
 
 ```yaml
 - name: Check Schema Drift
@@ -49,42 +24,8 @@ Add Veritect to any GitHub Actions pipeline as a zero-dependency step:
     SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
 ```
 
-The action will:
-1. **Pass (exit 0)** on the first run, auto-creating `veritect.lock`.
-2. **Pass (exit 0)** when the schema matches the locked baseline.
-3. **Fail (exit 1)** on drift, printing the structural diff and optionally notifying Slack.
+This configuration allows Veritect to execute seamlessly within CI workflows, providing immediate feedback on schema integrity.
 
----
+## Licensing and Compliance
 
-## Architecture
-
-```
-┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│   cmd/veritect  │────▶│  internal/       │────▶│  information_   │
-│   main.go       │     │  database/       │     │  schema.columns │
-│                 │     │  postgres.go     │     │  (public schema)│
-│                 │     └──────────────────┘     └─────────────────┘
-│                 │                │
-│                 │                ▼
-│                 │     ┌──────────────────┐
-│                 │────▶│  internal/       │────▶ Slack Webhook
-│                 │     │  notifier/       │
-│                 │     │  slack.go        │
-└─────────────────┘     └──────────────────┘
-```
-
-- **Headless**: No HTTP server, no background processes.
-- **Modular**: Clean separation between database access, notification, and orchestration.
-- **Deterministic**: Queries enforce strict ordering before hashing to eliminate non-determinism.
-- **Zero-cost**: Only runs when invoked; no persistent services or infrastructure required.
-
----
-
-## License
-
-Licensed under the Business Source License 1.1. See [LICENSE](./LICENSE) for details.
-
-- **Change Date**: 2030-05-31
-- **Change License**: Apache-2.0
-
-Internal and non-commercial use is unrestricted. Competing commercial SaaS offerings require a separate license.
+Veritect is licensed under the Business Source License (BSL) 1.1. This framework allows free usage for internal operations while protecting commercial boundaries. The license will transition to Apache-2.0 on 2030-05-31. Internal and non-commercial use is unrestricted, whereas competing commercial SaaS offerings require a separate license.
