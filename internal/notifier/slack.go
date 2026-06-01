@@ -2,9 +2,12 @@ package notifier
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"time"
 
 	"veritect/internal/database"
@@ -13,24 +16,34 @@ import (
 // SendDiff delivers a structured Slack message containing the schema drift summary
 // and detailed structural changes to the provided webhook URL.
 func SendDiff(webhookURL string, added, removed, modified []database.ColumnInfo) error {
+	if _, err := url.ParseRequestURI(webhookURL); err != nil {
+		return fmt.Errorf("invalid slack webhook URL: %w", err)
+	}
+
 	payload := buildPayload(added, removed, modified)
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("marshaling slack payload: %w", err)
 	}
 
-	req, err := http.NewRequest(http.MethodPost, webhookURL, bytes.NewReader(body))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, webhookURL, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("creating slack request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("sending slack request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("slack webhook returned status %d", resp.StatusCode)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"veritect/internal/database"
@@ -23,13 +24,13 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	dbURL := os.Getenv("DATABASE_URL")
+	dbURL := strings.TrimSpace(os.Getenv("DATABASE_URL"))
 	if dbURL == "" {
 		fmt.Fprintln(os.Stderr, "Error: DATABASE_URL environment variable is required")
 		os.Exit(1)
 	}
 
-	slackWebhook := os.Getenv("SLACK_WEBHOOK")
+	slackWebhook := strings.TrimSpace(os.Getenv("SLACK_WEBHOOK"))
 
 	// Fetch current schema
 	columns, hash, err := database.FetchSchema(ctx, dbURL)
@@ -47,7 +48,7 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Error marshaling lock file: %v\n", err)
 			os.Exit(1)
 		}
-		if err := os.WriteFile(lockFile, b, 0644); err != nil {
+		if err := os.WriteFile(lockFile, b, 0600); err != nil {
 			fmt.Fprintf(os.Stderr, "Error writing lock file: %v\n", err)
 			os.Exit(1)
 		}

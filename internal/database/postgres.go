@@ -7,23 +7,31 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
 
 // ColumnInfo represents a single column's structural metadata.
 type ColumnInfo struct {
-	TableName            string `json:"table_name"`
-	ColumnName           string `json:"column_name"`
-	DataType             string `json:"data_type"`
-	IsNullable           string `json:"is_nullable"`
+	TableName              string `json:"table_name"`
+	ColumnName             string `json:"column_name"`
+	DataType               string `json:"data_type"`
+	IsNullable             string `json:"is_nullable"`
 	CharacterMaximumLength *int   `json:"character_maximum_length,omitempty"`
 }
 
 // FetchSchema connects to the given PostgreSQL database, pulls column metadata
 // from the public schema, and returns both the ordered slice of columns and a
 // deterministic SHA-256 hash of that structure.
-func FetchSchema(ctx context.Context, connStr string) ([]ColumnInfo, string, error) {
+func FetchSchema(parentCtx context.Context, connStr string) ([]ColumnInfo, string, error) {
+	if _, err := pgx.ParseConfig(connStr); err != nil {
+		return nil, "", fmt.Errorf("invalid database connection string: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(parentCtx, 10*time.Second)
+	defer cancel()
+
 	conn, err := pgx.Connect(ctx, connStr)
 	if err != nil {
 		return nil, "", fmt.Errorf("connecting to database: %w", err)
@@ -46,7 +54,7 @@ func FetchSchema(ctx context.Context, connStr string) ([]ColumnInfo, string, err
 	}
 	defer rows.Close()
 
-	var columns []ColumnInfo
+	columns := make([]ColumnInfo, 0)
 	for rows.Next() {
 		var col ColumnInfo
 		var charMaxLen *int
@@ -146,7 +154,10 @@ func Diff(oldCols, newCols []ColumnInfo) (added, removed, modified []ColumnInfo)
 }
 
 func columnsEqual(a, b ColumnInfo) bool {
-	aJSON, _ := json.Marshal(a)
-	bJSON, _ := json.Marshal(b)
+	aJSON, errA := json.Marshal(a)
+	bJSON, errB := json.Marshal(b)
+	if errA != nil || errB != nil {
+		return false
+	}
 	return string(aJSON) == string(bJSON)
 }
