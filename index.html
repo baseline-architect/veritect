@@ -1,0 +1,1781 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Veritect — Stateless Schema Drift Detection</title>
+  <style>
+    /* ============================================================
+       DESIGN TOKENS
+    ============================================================ */
+    :root {
+      --bg:              #000000;
+      --fg-primary:      #FFFFFF;
+      --fg-secondary:    #94A3B8;
+      --fg-tertiary:     #475569;
+      --border:          #1E293B;
+      --border-hover:    rgba(16, 185, 129, 0.38);
+      --surface:         rgba(255, 255, 255, 0.025);
+      --surface-hover:   rgba(255, 255, 255, 0.045);
+      --accent:          #10B981;
+      --accent-dim:      rgba(16, 185, 129, 0.1);
+      --accent-glow:     rgba(16, 185, 129, 0.07);
+      --accent-glow-md:  rgba(16, 185, 129, 0.12);
+      --red:             #EF4444;
+      --red-dim:         rgba(239, 68, 68, 0.08);
+      --line:            rgba(255, 255, 255, 0.055);
+      --line-accent:     rgba(16, 185, 129, 0.18);
+      --nav-bg:          rgba(0, 0, 0, 0.72);
+      --mono:            "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas, "Courier New", monospace;
+      --sans:            Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      --radius:          6px;
+      --shadow-glow:     0 0 28px rgba(16, 185, 129, 0.08);
+      --shadow-glow-md:  0 0 40px rgba(16, 185, 129, 0.14);
+      --transition:      border-color 0.22s ease, box-shadow 0.22s ease, background 0.22s ease;
+    }
+
+    /* ============================================================
+       RESET & BASE
+    ============================================================ */
+    *, *::before, *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html {
+      background-color: var(--bg);
+      color: var(--fg-primary);
+      font-family: var(--sans);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      scroll-behavior: smooth;
+    }
+
+    body {
+      background-color: var(--bg);
+      min-height: 100vh;
+      line-height: 1.65;
+      font-size: 15px;
+      position: relative;
+      overflow-x: hidden;
+    }
+
+    /* Ultra-thin emerald hairline grid */
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(to right,  rgba(16, 185, 129, 0.045) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(16, 185, 129, 0.045) 1px, transparent 1px);
+      background-size: 60px 60px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* Ambient radial emerald glow — top center */
+    body::after {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(ellipse 80% 48% at 50% 0%, rgba(16, 185, 129, 0.17), transparent 68%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 24px;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* ============================================================
+       NAVIGATION — frosted glass, sticky
+    ============================================================ */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 200;
+      background: var(--nav-bg);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid rgba(16, 185, 129, 0.09);
+    }
+
+    .nav-inner {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 15px 24px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .nav-left {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+    }
+
+    .brand {
+      font-family: var(--mono);
+      font-weight: 600;
+      letter-spacing: 0.18em;
+      font-size: 12px;
+      text-transform: uppercase;
+      color: var(--fg-primary);
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 28px;
+      align-items: center;
+    }
+
+    .nav-links a {
+      color: var(--fg-secondary);
+      font-size: 13px;
+      font-weight: 500;
+      text-decoration: none;
+      letter-spacing: 0.01em;
+      transition: color 0.18s ease;
+    }
+
+    .nav-links a:hover { color: var(--fg-primary); }
+
+    /* ============================================================
+       HERO
+    ============================================================ */
+    .hero {
+      padding: 96px 0 80px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: 1.35fr 0.65fr;
+      gap: 56px;
+      align-items: start;
+    }
+
+    .hero-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--fg-secondary);
+      margin-bottom: 26px;
+    }
+
+    .hero-label::before {
+      content: "//";
+      color: var(--accent);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    h1 {
+      font-size: clamp(60px, 9.5vw, 112px);
+      font-weight: 800;
+      letter-spacing: -0.045em;
+      line-height: 0.9;
+      margin-bottom: 28px;
+      color: var(--fg-primary);
+    }
+
+    h1 .accent { color: var(--accent); }
+
+    .hero-subtitle {
+      font-size: 17px;
+      color: var(--fg-secondary);
+      max-width: 560px;
+      line-height: 1.62;
+      margin-bottom: 10px;
+      font-weight: 400;
+      letter-spacing: -0.01em;
+    }
+
+    .hero-tagline {
+      font-family: var(--mono);
+      font-size: 11.5px;
+      color: var(--fg-tertiary);
+      margin-bottom: 36px;
+      letter-spacing: 0.045em;
+    }
+
+    .hero-tagline em {
+      color: var(--accent);
+      font-style: normal;
+    }
+
+    /* ============================================================
+       BUTTONS
+    ============================================================ */
+    .actions {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 36px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      padding: 12px 20px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      text-decoration: none;
+      color: var(--fg-primary);
+      font-size: 13px;
+      font-weight: 600;
+      background: transparent;
+      cursor: pointer;
+      transition: var(--transition), color 0.18s ease;
+      letter-spacing: 0.01em;
+      font-family: var(--sans);
+      white-space: nowrap;
+    }
+
+    .btn:hover {
+      border-color: var(--border-hover);
+      background: var(--accent-dim);
+      box-shadow: var(--shadow-glow);
+    }
+
+    .btn.primary {
+      background: var(--accent);
+      color: #000;
+      font-weight: 700;
+      border-color: var(--accent);
+    }
+
+    .btn.primary:hover {
+      background: #0daa6f;
+      border-color: #0daa6f;
+      box-shadow: 0 0 32px rgba(16, 185, 129, 0.32);
+    }
+
+    /* ============================================================
+       COPY BUTTON — shared across terminal + code blocks
+    ============================================================ */
+    .copy-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 10px;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--fg-tertiary);
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.07em;
+      cursor: pointer;
+      transition: border-color 0.18s, color 0.18s, background 0.18s;
+      text-transform: uppercase;
+      line-height: 1;
+    }
+
+    .copy-btn svg {
+      flex-shrink: 0;
+      transition: stroke 0.18s;
+    }
+
+    .copy-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: var(--accent-dim);
+    }
+
+    .copy-btn.copied,
+    .copy-btn.copied:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: rgba(16, 185, 129, 0.12);
+    }
+
+    /* ============================================================
+       TERMINAL PANEL
+    ============================================================ */
+    .terminal-card {
+      background: rgba(4, 7, 14, 0.95);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      transition: var(--transition);
+    }
+
+    .terminal-card:hover {
+      border-color: var(--border-hover);
+      box-shadow: var(--shadow-glow);
+    }
+
+    .terminal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.018);
+    }
+
+    .terminal-dots {
+      display: flex;
+      gap: 6px;
+    }
+
+    .terminal-dots span {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+
+    .terminal-dots span:nth-child(1) { background: #FF5F57; }
+    .terminal-dots span:nth-child(2) { background: #FFBD2E; }
+    .terminal-dots span:nth-child(3) { background: #28CA41; }
+
+    .terminal-filename {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--fg-tertiary);
+      letter-spacing: 0.05em;
+    }
+
+    .terminal-body {
+      padding: 18px 20px;
+      font-family: var(--mono);
+      font-size: 12.5px;
+      color: var(--fg-primary);
+      line-height: 1.7;
+      min-height: 56px;
+    }
+
+    .term-prompt {
+      color: var(--accent);
+      margin-right: 9px;
+      user-select: none;
+      font-weight: 700;
+    }
+
+    /* Block cursor */
+    .cursor {
+      display: inline-block;
+      width: 7px;
+      height: 14px;
+      background: var(--accent);
+      vertical-align: text-bottom;
+      border-radius: 1px;
+      opacity: 0.85;
+      animation: blink 1.05s step-end infinite;
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 0.85; }
+      50%       { opacity: 0; }
+    }
+
+    /* ============================================================
+       SNAPSHOT CARD
+    ============================================================ */
+    .snapshot-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      transition: var(--transition);
+    }
+
+    .snapshot-card:hover {
+      border-color: var(--border-hover);
+      box-shadow: var(--shadow-glow);
+    }
+
+    .snapshot-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 11px 16px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.018);
+    }
+
+    .snapshot-label {
+      font-family: var(--mono);
+      font-size: 10.5px;
+      color: var(--fg-tertiary);
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+    }
+
+    .snapshot-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--accent);
+      letter-spacing: 0.07em;
+      font-weight: 600;
+    }
+
+    .snapshot-status::before {
+      content: "";
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--accent);
+      animation: dot-pulse 2.2s ease-in-out infinite;
+    }
+
+    .snapshot-body {
+      padding: 20px;
+    }
+
+    .snapshot-body pre {
+      font-family: var(--mono);
+      font-size: 12.5px;
+      line-height: 1.9;
+      color: var(--fg-secondary);
+      margin: 0;
+    }
+
+    .snapshot-body .s-hash-label {
+      color: var(--fg-tertiary);
+      font-size: 10px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      display: block;
+      margin-top: 14px;
+      margin-bottom: 4px;
+    }
+
+    .snapshot-body .s-hash-value {
+      color: var(--accent);
+      font-size: 11.5px;
+      word-break: break-all;
+      line-height: 1.6;
+      display: block;
+    }
+
+    /* ============================================================
+       METRICS STRIP
+    ============================================================ */
+    .metrics-strip {
+      padding: 64px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+    }
+
+    .metric {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      cursor: default;
+      transition: var(--transition);
+    }
+
+    .metric:hover {
+      border-color: var(--border-hover);
+      background: rgba(16, 185, 129, 0.038);
+      box-shadow: var(--shadow-glow), inset 0 1px 0 rgba(16, 185, 129, 0.07);
+    }
+
+    .metric-label {
+      font-family: var(--mono);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--fg-tertiary);
+      margin-bottom: 12px;
+    }
+
+    .metric-value {
+      font-family: var(--mono);
+      font-size: 26px;
+      font-weight: 700;
+      color: var(--fg-primary);
+      letter-spacing: -0.03em;
+      display: block;
+      margin-bottom: 7px;
+      line-height: 1;
+    }
+
+    .metric-detail {
+      font-size: 12px;
+      color: var(--fg-secondary);
+      letter-spacing: 0.01em;
+    }
+
+    /* ============================================================
+       SECTION SCAFFOLDING
+    ============================================================ */
+    section {
+      padding: 88px 0;
+      border-bottom: 1px solid var(--border);
+      position: relative;
+      z-index: 1;
+    }
+
+    section:last-of-type { border-bottom: none; }
+
+    .section-label {
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      color: var(--accent);
+      margin-bottom: 10px;
+    }
+
+    .section-title {
+      font-size: clamp(30px, 4vw, 42px);
+      font-weight: 700;
+      letter-spacing: -0.035em;
+      line-height: 1.1;
+      color: var(--fg-primary);
+      margin-bottom: 16px;
+    }
+
+    .section-subtitle {
+      font-size: 15px;
+      color: var(--fg-secondary);
+      max-width: 700px;
+      line-height: 1.7;
+      margin-bottom: 56px;
+      letter-spacing: -0.005em;
+    }
+
+    /* ============================================================
+       SECTION — DRIFT VECTOR
+    ============================================================ */
+    .drift-layout {
+      display: grid;
+      grid-template-columns: 1.05fr 0.95fr;
+      gap: 48px;
+      align-items: start;
+    }
+
+    .drift-text p {
+      font-size: 14.5px;
+      color: var(--fg-secondary);
+      line-height: 1.78;
+      margin-bottom: 20px;
+    }
+
+    .drift-text p strong {
+      color: var(--fg-primary);
+      font-weight: 600;
+    }
+
+    .drift-text code {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--accent);
+      background: var(--accent-dim);
+      padding: 1px 6px;
+      border-radius: 3px;
+    }
+
+    .stat-block {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      padding: 20px 24px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--accent);
+      border-radius: var(--radius);
+      margin-top: 28px;
+      transition: var(--transition);
+    }
+
+    .stat-block:hover { border-right-color: var(--border-hover); }
+
+    .stat-block .stat-val {
+      font-family: var(--mono);
+      font-size: 34px;
+      font-weight: 800;
+      color: var(--accent);
+      letter-spacing: -0.035em;
+      line-height: 1;
+      margin-bottom: 6px;
+    }
+
+    .stat-block .stat-desc {
+      font-size: 12.5px;
+      color: var(--fg-secondary);
+      line-height: 1.6;
+    }
+
+    .stat-block .stat-desc strong {
+      color: var(--fg-secondary);
+      font-weight: 600;
+    }
+
+    .drift-visual {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .drift-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 18px;
+      transition: var(--transition);
+    }
+
+    .drift-card:hover { border-color: rgba(148, 163, 184, 0.2); }
+
+    .drift-card.dc-alert {
+      border-color: rgba(239, 68, 68, 0.22);
+      background: rgba(239, 68, 68, 0.03);
+    }
+
+    .drift-card.dc-success {
+      border-color: rgba(16, 185, 129, 0.22);
+      background: rgba(16, 185, 129, 0.03);
+    }
+
+    .drift-card-label {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+      color: var(--fg-tertiary);
+    }
+
+    .dc-alert   .drift-card-label { color: var(--red); }
+    .dc-success .drift-card-label { color: var(--accent); }
+
+    .drift-card pre {
+      font-family: var(--mono);
+      font-size: 11.5px;
+      line-height: 1.75;
+      color: var(--fg-secondary);
+      margin: 0;
+      white-space: pre;
+    }
+
+    .drift-card pre .del     { color: var(--red); }
+    .drift-card pre .add     { color: var(--accent); }
+    .drift-card pre .neutral { color: var(--fg-tertiary); }
+
+    /* ============================================================
+       SECTION — NO-DATA EXTRACTION
+    ============================================================ */
+    .nodata-layout {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 48px;
+      align-items: start;
+    }
+
+    .nodata-text p {
+      font-size: 14.5px;
+      color: var(--fg-secondary);
+      line-height: 1.78;
+      margin-bottom: 20px;
+    }
+
+    .nodata-text p strong {
+      color: var(--fg-primary);
+      font-weight: 600;
+    }
+
+    .nodata-text code {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--accent);
+      background: var(--accent-dim);
+      padding: 1px 6px;
+      border-radius: 3px;
+    }
+
+    /* Guarantee checklist */
+    .guarantee-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 28px;
+    }
+
+    .guarantee-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 14px 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      transition: var(--transition);
+    }
+
+    .guarantee-item:hover {
+      border-color: rgba(16, 185, 129, 0.22);
+      background: rgba(16, 185, 129, 0.025);
+    }
+
+    .guarantee-icon {
+      color: var(--accent);
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+      flex-shrink: 0;
+      margin-top: 2px;
+      width: 16px;
+    }
+
+    .guarantee-text {
+      font-size: 13px;
+      color: var(--fg-secondary);
+      line-height: 1.58;
+    }
+
+    .guarantee-text strong {
+      color: var(--fg-primary);
+      font-weight: 600;
+      display: block;
+      margin-bottom: 3px;
+      font-size: 13.5px;
+    }
+
+    .guarantee-text code {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--accent);
+      background: var(--accent-dim);
+      padding: 1px 5px;
+      border-radius: 3px;
+    }
+
+    /* SQL Query showcase */
+    .query-showcase {
+      background: rgba(4, 7, 14, 0.95);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      transition: var(--transition);
+    }
+
+    .query-showcase:hover {
+      border-color: var(--border-hover);
+      box-shadow: var(--shadow-glow);
+    }
+
+    .query-head {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 11px 16px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.018);
+    }
+
+    .query-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--accent);
+      flex-shrink: 0;
+    }
+
+    .query-head-label {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--fg-tertiary);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .query-body {
+      padding: 20px;
+      overflow-x: auto;
+    }
+
+    .query-body pre {
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.8;
+      color: var(--fg-secondary);
+      margin: 0;
+    }
+
+    .query-body .qkw  { color: #93C5FD; }
+    .query-body .qfn  { color: #C4B5FD; }
+    .query-body .qstr { color: #A5B4FC; }
+    .query-body .qcm  { color: var(--fg-tertiary); font-style: italic; }
+    .query-body .qacc { color: var(--accent); }
+
+    /* ============================================================
+       SECTION — PIPELINE INSURANCE
+    ============================================================ */
+    .pipeline-intro {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 48px;
+      align-items: start;
+      margin-bottom: 48px;
+    }
+
+    .pipeline-intro-text p {
+      font-size: 14.5px;
+      color: var(--fg-secondary);
+      line-height: 1.78;
+      margin-bottom: 20px;
+    }
+
+    .pipeline-intro-text p strong {
+      color: var(--fg-primary);
+      font-weight: 600;
+    }
+
+    .pipeline-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+
+    .pipeline-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 22px 22px;
+      transition: var(--transition);
+    }
+
+    .pipeline-card:hover {
+      border-color: var(--border-hover);
+      background: rgba(16, 185, 129, 0.03);
+      box-shadow: var(--shadow-glow);
+    }
+
+    .pipeline-tag {
+      display: inline-block;
+      font-family: var(--mono);
+      font-size: 9.5px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--accent);
+      background: var(--accent-dim);
+      border-radius: 3px;
+      padding: 3px 7px;
+      margin-bottom: 14px;
+    }
+
+    .pipeline-card h4 {
+      font-size: 14.5px;
+      font-weight: 600;
+      color: var(--fg-primary);
+      margin-bottom: 10px;
+      letter-spacing: -0.015em;
+      line-height: 1.3;
+    }
+
+    .pipeline-card p {
+      font-size: 13px;
+      color: var(--fg-secondary);
+      line-height: 1.68;
+    }
+
+    /* ============================================================
+       SECTION — ARCHITECTURAL PROTOCOL
+    ============================================================ */
+    .timeline {
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+
+    .timeline::before {
+      content: "";
+      position: absolute;
+      left: 11px;
+      top: 6px;
+      bottom: 6px;
+      width: 1px;
+      background: linear-gradient(
+        to bottom,
+        rgba(16, 185, 129, 0.5),
+        rgba(16, 185, 129, 0.08) 90%,
+        transparent
+      );
+    }
+
+    .phase {
+      display: flex;
+      gap: 28px;
+      padding: 0 0 40px 40px;
+      position: relative;
+    }
+
+    .phase:last-child { padding-bottom: 0; }
+
+    .phase::before {
+      content: "";
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--accent);
+      border: 2px solid var(--bg);
+      position: absolute;
+      left: 7px;
+      top: 4px;
+      box-shadow: 0 0 10px rgba(16, 185, 129, 0.5);
+    }
+
+    .phase-num {
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--accent);
+      min-width: 64px;
+      flex-shrink: 0;
+      padding-top: 3px;
+      letter-spacing: 0.04em;
+    }
+
+    .phase-body h3 {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--fg-primary);
+      margin-bottom: 9px;
+      letter-spacing: -0.018em;
+    }
+
+    .phase-body p {
+      font-size: 14px;
+      color: var(--fg-secondary);
+      line-height: 1.75;
+      max-width: 660px;
+    }
+
+    .phase-body p code {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--accent);
+      background: var(--accent-dim);
+      padding: 1px 5px;
+      border-radius: 3px;
+    }
+
+    /* ============================================================
+       SECTION — SECURITY PRINCIPLES
+    ============================================================ */
+    .principles-intro {
+      font-size: 14.5px;
+      color: var(--fg-secondary);
+      max-width: 680px;
+      line-height: 1.7;
+      margin-bottom: 40px;
+    }
+
+    .principles-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+
+    .principle-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 22px 24px;
+      transition: var(--transition);
+    }
+
+    .principle-card:hover {
+      border-color: var(--border-hover);
+      background: rgba(16, 185, 129, 0.035);
+      box-shadow: var(--shadow-glow);
+    }
+
+    .principle-title {
+      font-family: var(--mono);
+      font-size: 12.5px;
+      font-weight: 700;
+      color: var(--fg-primary);
+      letter-spacing: 0.045em;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+
+    .principle-desc {
+      font-size: 13px;
+      color: var(--fg-secondary);
+      line-height: 1.65;
+    }
+
+    /* ============================================================
+       SECTION — CI SPECIFICATION
+    ============================================================ */
+    .code-block {
+      background: rgba(4, 7, 14, 0.95);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      transition: var(--transition);
+    }
+
+    .code-block:hover {
+      border-color: var(--border-hover);
+      box-shadow: var(--shadow-glow);
+    }
+
+    .code-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.018);
+    }
+
+    .code-header-left {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+    }
+
+    .code-lang-badge {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--fg-tertiary);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .code-body {
+      padding: 24px;
+      overflow-x: auto;
+    }
+
+    .code-body pre {
+      font-family: var(--mono);
+      font-size: 13px;
+      line-height: 1.78;
+      color: var(--fg-primary);
+      margin: 0;
+    }
+
+    .code-body .c-comment { color: var(--fg-tertiary); font-style: italic; }
+    .code-body .c-key     { color: #CBD5E1; }
+    .code-body .c-string  { color: #A5B4FC; }
+    .code-body .c-tag     { color: #FCA5A5; }
+    .code-body .c-var     { color: #86EFAC; }
+
+    /* ============================================================
+       FOOTER
+    ============================================================ */
+    footer {
+      padding: 56px 0;
+      border-top: 1px solid var(--line);
+      position: relative;
+      z-index: 1;
+    }
+
+    .footer-inner {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .footer-brand {
+      font-family: var(--mono);
+      font-size: 11.5px;
+      font-weight: 800;
+      letter-spacing: 0.22em;
+      color: var(--fg-tertiary);
+      text-transform: uppercase;
+    }
+
+    .footer-divider {
+      width: 40px;
+      height: 1px;
+      background: var(--line-accent);
+    }
+
+    footer p {
+      font-size: 12.5px;
+      color: var(--fg-tertiary);
+      line-height: 1.78;
+      max-width: 780px;
+    }
+
+    /* ============================================================
+       RESPONSIVE
+    ============================================================ */
+    @media (max-width: 1000px) {
+      .hero-grid,
+      .drift-layout,
+      .nodata-layout,
+      .pipeline-intro {
+        grid-template-columns: 1fr;
+      }
+
+      .metrics-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .pipeline-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .principles-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    @media (max-width: 640px) {
+      .container { padding: 0 16px; }
+
+      .nav-links { display: none; }
+
+      .hero { padding: 64px 0 52px; }
+
+      h1 { font-size: 52px; }
+
+      .hero-subtitle { font-size: 15.5px; }
+
+      .actions {
+        flex-direction: column;
+      }
+
+      .btn { justify-content: center; }
+
+      .metrics-grid { grid-template-columns: 1fr; }
+
+      .pipeline-grid { grid-template-columns: 1fr; }
+
+      .principles-grid { grid-template-columns: 1fr; }
+
+      section { padding: 60px 0; }
+
+      .metrics-strip { padding: 48px 0; }
+
+      .section-title { font-size: 28px; }
+
+      .code-body { padding: 16px; }
+
+      .code-body pre { font-size: 11.5px; }
+    }
+
+    @media (max-width: 400px) {
+      h1 { font-size: 42px; }
+    }
+  </style>
+  <base target="_blank">
+</head>
+<body>
+
+  <!-- ============================================================
+       NAVIGATION
+  ============================================================ -->
+  <nav>
+    <div class="nav-inner">
+      <div class="nav-left">
+        <div class="brand">VERITECT</div>
+      </div>
+      <div class="nav-links">
+        <a href="#ci-specification">Docs</a>
+        <a href="#security-principles">Security</a>
+        <a href="#">GitHub</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ============================================================
+       HERO
+  ============================================================ -->
+  <header class="hero">
+    <div class="container">
+      <div class="hero-grid">
+
+        <!-- Left column -->
+        <div>
+          <div class="hero-label">Schema Integrity Infrastructure</div>
+          <h1>VERITECT</h1>
+          <p class="hero-subtitle">Stateless, zero-trust database schema drift detection for automated deployment pipelines.</p>
+          <p class="hero-tagline">Cryptographic gating at the CI layer. <em>No data. No agents. No drift.</em></p>
+
+          <div class="actions">
+            <a href="#" class="btn primary">Deploy Veritect</a>
+            <a href="#ci-specification" class="btn">Documentation</a>
+          </div>
+
+          <!-- Terminal -->
+          <div class="terminal-card">
+            <div class="terminal-header">
+              <div class="terminal-dots">
+                <span></span><span></span><span></span>
+              </div>
+              <div class="terminal-filename">bash &mdash; veritect init</div>
+              <button class="copy-btn" id="terminal-copy-btn" onclick="copyTerminal()">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+                <span class="copy-label">Copy</span>
+              </button>
+            </div>
+            <div class="terminal-body">
+              <span class="term-prompt">$</span><span id="typewriter-text"></span><span class="cursor" id="tw-cursor"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right column: snapshot -->
+        <div>
+          <div class="snapshot-card">
+            <div class="snapshot-header">
+              <div class="snapshot-label">schema.snapshot</div>
+              <div class="snapshot-status">LOCKED</div>
+            </div>
+            <div class="snapshot-body">
+              <pre>users
+orders
+billing
+audit_log<span class="s-hash-label">// SHA-256 FINGERPRINT</span><span class="s-hash-value">8b3f7a1c2d9e5f77
+a4c8b2e1f6d9a3b7
+c5e8f2a1d4b7c9e3...</span></pre>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </header>
+
+  <!-- ============================================================
+       METRICS STRIP
+  ============================================================ -->
+  <div class="metrics-strip">
+    <div class="container">
+      <div class="metrics-grid">
+
+        <div class="metric">
+          <div class="metric-label">Runtime Benchmark</div>
+          <span class="metric-value">20ms</span>
+          <span class="metric-detail">Deterministic execution</span>
+        </div>
+
+        <div class="metric">
+          <div class="metric-label">Security Posture</div>
+          <span class="metric-value">Zero-Trust</span>
+          <span class="metric-detail">Metadata Only</span>
+        </div>
+
+        <div class="metric">
+          <div class="metric-label">Operational Cost</div>
+          <span class="metric-value">$0</span>
+          <span class="metric-detail">Infrastructure Overhead</span>
+        </div>
+
+        <div class="metric">
+          <div class="metric-label">Licensing Matrix</div>
+          <span class="metric-value">BSL 1.1</span>
+          <span class="metric-detail">Compliance Guarded</span>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       SECTION 1 — THE SILENT DRIFT VECTOR
+  ============================================================ -->
+  <section>
+    <div class="container">
+      <div class="section-label">Threat Model</div>
+      <div class="section-title">The Silent Drift Vector</div>
+      <p class="section-subtitle">A structural mutation in your production database is invisible to standard CI/CD pipelines. No alert fires. No deployment blocks. The broken schema reaches production silently — and the blast radius expands asymmetrically.</p>
+
+      <div class="drift-layout">
+
+        <!-- Text -->
+        <div class="drift-text">
+          <p><strong>Schema drift is the act of a database structure silently mutating</strong> between two states that a CI/CD pipeline treats as identical. A column is renamed. A foreign key constraint is dropped. A table is truncated and recreated with a subtly different field order. Standard deployment tooling has zero mechanism to detect any of this. The pipeline passes green. The build artefact ships. The structural corruption arrives in production asynchronously, far removed from the change that caused it.</p>
+
+          <p>Veritect addresses this at the architectural root. It inserts a <strong>strict cryptographic gating mechanism at the continuous integration layer</strong> — a deterministic SHA-256 assertion that the schema fingerprint committed to <code>veritect.lock</code> is structurally identical to the live database schema at the moment of deployment. If it is not, <code>os.Exit(1)</code> fires unconditionally. The pipeline does not continue.</p>
+
+          <p>This is not a passive monitoring layer. It does not observe and report after the fact. It is a <strong>hard enforcement gate with a binary outcome</strong>: schema matches lock, or deployment halts. A cryptographic invariant assertion that must pass before any artefact reaches your infrastructure.</p>
+
+          <div class="stat-block">
+            <span class="stat-val">$12.9M</span>
+            <span class="stat-desc">Average cost of a data quality failure incident in enterprise environments. A significant proportion of these incidents are attributable to silent structural schema mutations propagating through unguarded deployment pipelines into downstream analytical and transaction layers. &mdash; <strong>IBM / Gartner, 2024</strong></span>
+          </div>
+        </div>
+
+        <!-- Visual: drift diff cards -->
+        <div class="drift-visual">
+
+          <div class="drift-card dc-alert">
+            <div class="drift-card-label">// DRIFT EVENT DETECTED &mdash; schema@prod &ne; veritect.lock</div>
+            <pre><span class="del">- users.full_name    VARCHAR(255)</span>
+<span class="add">+ users.first_name   VARCHAR(128)</span>
+<span class="add">+ users.last_name    VARCHAR(128)</span>
+<span class="neutral">  users.email         VARCHAR(255)</span>
+<span class="del">- users.created_at   TIMESTAMP</span>
+<span class="neutral">  users.id            UUID PRIMARY KEY</span>
+<span class="del">- orders.user_ref    FOREIGN KEY</span>
+<span class="neutral">  orders.status       VARCHAR(32)</span></pre>
+          </div>
+
+          <div class="drift-card">
+            <div class="drift-card-label">// PIPELINE RESPONSE &mdash; os.Exit(1) HARD BLOCK</div>
+            <pre><span class="neutral">veritect: fingerprint mismatch</span>
+<span class="del">  expected: 8b3f7a1c2d9e5f77...</span>
+<span class="add">  actual:   a9c4d2e8f1b6a3c7...</span>
+<span class="neutral">veritect: dispatching diff payload</span>
+<span class="neutral">veritect: &rarr; #devops-alerts (Slack)</span>
+<span class="neutral">veritect: emitting structured diff stdout</span>
+<span class="del">FATAL: exit status 1</span></pre>
+          </div>
+
+          <div class="drift-card dc-success">
+            <div class="drift-card-label">// SCHEMA VALID &mdash; deployment gate OPEN</div>
+            <pre><span class="add">veritect: fingerprint match &#x2713;</span>
+<span class="neutral">  hash: 8b3f7a1c2d9e5f77...</span>
+<span class="neutral">  tables: 4 verified, 0 delta</span>
+<span class="neutral">  runtime: 18ms</span>
+<span class="add">veritect: schema integrity confirmed &#x2713;</span>
+<span class="add">veritect: pipeline gate OPEN &#x2713;</span></pre>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SECTION 2 — NO-DATA EXTRACTION SECURITY MODEL
+  ============================================================ -->
+  <section>
+    <div class="container">
+      <div class="section-label">Data Sovereignty Architecture</div>
+      <div class="section-title">No-Data Extraction Security Model</div>
+      <p class="section-subtitle">Veritect is architecturally incapable of touching your application records. It queries exclusively structural metadata from system-internal catalogs — never a single row of your data, never a value from your application tables.</p>
+
+      <div class="nodata-layout">
+
+        <!-- Text + guarantees -->
+        <div class="nodata-text">
+          <p>The security boundary is enforced at the <strong>query construction layer itself</strong>. Veritect executes one deterministic metadata introspection query against the <code>information_schema</code> system catalog — the same read-only internal catalog your database engine uses to describe its own structure. It is <strong>structurally incapable of issuing any <code>SELECT</code></strong> against your application tables, because no such query is ever constructed or dispatched.</p>
+
+          <p>This execution occurs entirely <strong>inside the client's localized virtual runner wall</strong> — the ephemeral compute environment provisioned by your CI provider (GitHub Actions, GitLab CI, CircleCI, Buildkite). The schema fingerprint is computed in memory, compared against the committed lock file, and the process terminates. <strong>No schema metadata, no structural intelligence, and no identifiers ever leave the runner boundary.</strong></p>
+
+          <p>The outcome is <strong>100% data sovereignty</strong> enforced at the execution architecture level — not by policy, not by configuration, not by runtime flags. No telemetry is emitted. No schema analytics are ingested. No external API call is made from the runner. Veritect is a single-shot binary: read <code>DATABASE_URL</code>, connect, introspect structure, hash, assert, exit.</p>
+
+          <div class="guarantee-list">
+
+            <div class="guarantee-item">
+              <div class="guarantee-icon">&#x2713;</div>
+              <div class="guarantee-text">
+                <strong>Zero application data access</strong>
+                Queries target only <code>information_schema.tables</code> and <code>information_schema.columns</code>. No application table is referenced. No row is read, transmitted, or held in memory.
+              </div>
+            </div>
+
+            <div class="guarantee-item">
+              <div class="guarantee-icon">&#x2713;</div>
+              <div class="guarantee-text">
+                <strong>Runner-local execution boundary</strong>
+                All processing occurs inside the ephemeral CI runner. The binary connects, introspects structure, computes the fingerprint, and terminates without exfiltrating any state.
+              </div>
+            </div>
+
+            <div class="guarantee-item">
+              <div class="guarantee-icon">&#x2713;</div>
+              <div class="guarantee-text">
+                <strong>No persistent daemon attack surface</strong>
+                No long-running agent. No background service. No outbound telemetry. Zero attack surface beyond the execution window of a single ephemeral CI step.
+              </div>
+            </div>
+
+            <div class="guarantee-item">
+              <div class="guarantee-icon">&#x2713;</div>
+              <div class="guarantee-text">
+                <strong>Canonicalized, environment-agnostic fingerprinting</strong>
+                The SHA-256 input is canonicalized and sorted prior to hashing. The fingerprint is identical across all database engine versions, connection states, and execution environments for equivalent schemas.
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- SQL query showcase -->
+        <div>
+          <div class="query-showcase">
+            <div class="query-head">
+              <div class="query-dot"></div>
+              <div class="query-head-label">Introspection Query &mdash; information_schema only</div>
+            </div>
+            <div class="query-body">
+              <pre><span class="qcm">-- The complete, unabridged query executed</span>
+<span class="qcm">-- against the target database. information_schema</span>
+<span class="qcm">-- is a system-internal read-only catalog.</span>
+<span class="qcm">-- No application table is ever referenced.</span>
+
+<span class="qkw">SELECT</span>
+  t.<span class="qacc">table_name</span>,
+  c.<span class="qacc">column_name</span>,
+  c.<span class="qacc">data_type</span>,
+  c.<span class="qacc">character_maximum_length</span>,
+  c.<span class="qacc">is_nullable</span>,
+  c.<span class="qacc">column_default</span>,
+  c.<span class="qacc">ordinal_position</span>
+<span class="qkw">FROM</span>
+  <span class="qstr">information_schema</span>.tables t
+<span class="qkw">JOIN</span>
+  <span class="qstr">information_schema</span>.columns c
+    <span class="qkw">ON</span> t.table_name = c.table_name
+<span class="qkw">WHERE</span>
+  t.table_schema = <span class="qstr">'public'</span>
+  <span class="qkw">AND</span> t.table_type = <span class="qstr">'BASE TABLE'</span>
+<span class="qkw">ORDER BY</span>
+  t.table_name <span class="qkw">ASC</span>,
+  c.ordinal_position <span class="qkw">ASC</span>;
+
+<span class="qcm">-- Output: canonicalized structural descriptor.</span>
+<span class="qcm">-- SHA-256 fingerprint computed in memory.</span>
+<span class="qcm">-- No rows. No values. No application data.</span></pre>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SECTION 3 — PIPELINE INSURANCE
+  ============================================================ -->
+  <section>
+    <div class="container">
+      <div class="section-label">Downstream Protection</div>
+      <div class="section-title">Insurance Policy for Data Pipelines</div>
+      <p class="section-subtitle">A schema mutation that clears the deployment gate undetected does not produce an isolated failure. It cascades through every downstream system that assumes structural consistency at the persistence layer.</p>
+
+      <div class="pipeline-intro">
+
+        <div class="pipeline-intro-text">
+          <p>Modern data infrastructure is built on a foundational assumption: <strong>the database schema is structurally stable between deployments</strong>. Your analytical warehouse executes transformation queries referencing specific column names. Your Redis cache serializes object graphs whose shape is derived from your ORM layer. Your message queue consumers deserialize payloads whose structure mirrors your table definitions. Your API response types are validated against field sets derived from your database columns.</p>
+
+          <p>When a schema mutation bypasses the deployment gate, it does not produce an immediate, localized failure with a clear blast radius. It produces a <strong>cascading structural mismatch that propagates simultaneously through every downstream layer</strong>. The symptoms surface asynchronously, far from the mutation, in systems that have no native visibility into what changed or when.</p>
+
+          <p>Veritect is the <strong>insurance mechanism that terminates this class of failure at the only architecturally correct intervention point</strong>: the deployment gate, before the structural mutation reaches the production persistence layer. One deterministic blocking assertion eliminates every downstream consequence simultaneously.</p>
+        </div>
+
+        <div>
+          <div class="drift-card dc-alert" style="height:100%;box-sizing:border-box;">
+            <div class="drift-card-label">// UNGUARDED MUTATION PROPAGATION</div>
+            <pre style="font-size:12px;line-height:1.85;"><span class="neutral">schema mutation bypasses CI gate</span>
+<span class="del">  &rarr; ETL pipeline: column not found</span>
+<span class="del">  &rarr; Analytics layer: NULL injection</span>
+<span class="del">  &rarr; Cache cluster: deserialize panic</span>
+<span class="del">  &rarr; API layer: 500 response flood</span>
+<span class="del">  &rarr; Queue workers: dead-letter flood</span>
+<span class="del">  &rarr; Dashboards: corrupted aggregates</span>
+<span class="neutral">time-to-detect: hours &rarr; days</span>
+<span class="neutral">root cause visibility: zero</span></pre>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="pipeline-grid">
+
+        <div class="pipeline-card">
+          <div class="pipeline-tag">Analytics</div>
+          <h4>Analytical Layers &amp; Data Warehouses</h4>
+          <p>ETL transformation queries reference specific column names and data types. A renamed column or changed type produces NULL-injected outputs and broken aggregation pipelines that silently corrupt business intelligence dashboards over time.</p>
+        </div>
+
+        <div class="pipeline-card">
+          <div class="pipeline-tag">Cache</div>
+          <h4>Cache Clusters &amp; Serialized State</h4>
+          <p>Redis and Memcached instances holding serialized object graphs built from your ORM schema become structurally stale. Deserialization panics and stale field reads produce corrupt application state that is extremely difficult to trace to a schema change.</p>
+        </div>
+
+        <div class="pipeline-card">
+          <div class="pipeline-tag">Workers</div>
+          <h4>Transaction Workers &amp; Message Queues</h4>
+          <p>Kafka consumers, RabbitMQ workers, and Sidekiq processors that deserialize payloads mirroring your database schema fail silently or throw deserialization exceptions, dead-lettering messages and stalling critical transaction flows.</p>
+        </div>
+
+        <div class="pipeline-card">
+          <div class="pipeline-tag">API</div>
+          <h4>API Contract Enforcement</h4>
+          <p>REST and GraphQL layers that derive type contracts from database schema definitions begin returning malformed response shapes. Consumers depending on stable field presence receive unexpected NULL fields or missing keys without any indication of the root cause.</p>
+        </div>
+
+        <div class="pipeline-card">
+          <div class="pipeline-tag">ORM</div>
+          <h4>ORM &amp; Migration Layer Integrity</h4>
+          <p>Object-relational mappers that reflect schema structure at runtime encounter unexpected field mappings, producing runtime exceptions in previously stable code paths. Migration state divergence compounds across environments, making remediation non-trivial.</p>
+        </div>
+
+        <div class="pipeline-card">
+          <div class="pipeline-tag">Observability</div>
+          <h4>Structured Alerting &amp; ChatOps Dispatch</h4>
+          <p>Veritect emits a precise, field-level structural diff payload to configured ChatOps webhooks at the exact moment of detection. Engineers receive an actionable delta — not a generic schema failure alert — enabling immediate, targeted remediation.</p>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SECTION 4 — ARCHITECTURAL PROTOCOL
+  ============================================================ -->
+  <section>
+    <div class="container">
+      <div class="section-label">Execution Model</div>
+      <div class="section-title">Architectural Protocol</div>
+      <p class="section-subtitle">Five deterministic execution phases. Zero persistent state. Zero background processes. Single-shot CI gate with a binary, unambiguous outcome.</p>
+
+      <div class="timeline">
+
+        <div class="phase">
+          <div class="phase-num">Phase 01</div>
+          <div class="phase-body">
+            <h3>Host Runner Initialization</h3>
+            <p>Reads <code>DATABASE_URL</code> from the CI secrets store and evaluates the local <code>veritect.lock</code> configuration state. No persistent daemon is spawned. No background process is registered. The process lifecycle is strictly bounded within a single ephemeral CI step on the host runner.</p>
+          </div>
+        </div>
+
+        <div class="phase">
+          <div class="phase-num">Phase 02</div>
+          <div class="phase-body">
+            <h3>Deterministic Metadata Extraction</h3>
+            <p>Executes a canonicalized schema metadata query exclusively against <code>information_schema</code> system catalogs. Complete structural introspection — covering all tables, columns, data types, constraints, and ordinal positions — completes within 20ms. No application data rows are accessed, transmitted, buffered, or held in memory beyond the computation window.</p>
+          </div>
+        </div>
+
+        <div class="phase">
+          <div class="phase-num">Phase 03</div>
+          <div class="phase-body">
+            <h3>Cryptographic Fingerprinting</h3>
+            <p>Generates a unique <code>SHA-256</code> structural snapshot from the canonicalized, lexicographically sorted schema representation. The input string is fully normalized prior to hashing, guaranteeing <code>deterministic output</code> across all execution environments, database engine versions, replica states, and connection configurations.</p>
+          </div>
+        </div>
+
+        <div class="phase">
+          <div class="phase-num">Phase 04</div>
+          <div class="phase-body">
+            <h3>Constraint Enforcement</h3>
+            <p>Compares the computed fingerprint against the SHA-256 baseline committed to <code>veritect.lock</code> in version control. A mismatch triggers a hard <code>os.Exit(1)</code>. The pipeline halts unconditionally. No warning-only mode exists. No silent-pass configuration is supported. The gate is binary: match or block.</p>
+          </div>
+        </div>
+
+        <div class="phase">
+          <div class="phase-num">Phase 05</div>
+          <div class="phase-body">
+            <h3>ChatOps Dispatch</h3>
+            <p>Transmits a precise structural diff payload directly to all configured network alert webhooks. Structured JSON logging is emitted to <code>stdout</code> for downstream observability ingestion into Datadog, Grafana, or equivalent. Engineers receive a field-level structural delta — the exact tables and columns that diverged — not a generic failure notification.</p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SECTION 5 — SECURITY PRINCIPLES
+  ============================================================ -->
+  <section id="security-principles">
+    <div class="container">
+      <div class="section-label">Trust Architecture</div>
+      <div class="section-title">Security Principles</div>
+      <p class="section-subtitle">Every architectural decision in Veritect is derived from a single constraint: touch only what is structurally necessary to assert schema integrity, and nothing more.</p>
+
+      <div class="principles-grid">
+
+        <div class="principle-card">
+          <div class="principle-title">Zero Trust</div>
+          <div class="principle-desc">No implicit trust in the execution environment or deployment history. Schema state is asserted cryptographically at every run, regardless of deployment frequency, environment consistency, or prior pass history.</div>
+        </div>
+
+        <div class="principle-card">
+          <div class="principle-title">Metadata Only</div>
+          <div class="principle-desc">Architecturally incapable of touching application records. All queries execute exclusively against system catalog tables internal to the database engine. Application tables are never referenced, accessed, or described.</div>
+        </div>
+
+        <div class="principle-card">
+          <div class="principle-title">No Agents</div>
+          <div class="principle-desc">No long-running agent. No background daemon. No persistent service registered on the host. The Veritect binary executes, asserts, and terminates. Zero agent attack surface is introduced into your infrastructure.</div>
+        </div>
+
+        <div class="principle-card">
+          <div class="principle-title">No Persistence</div>
+          <div class="principle-desc">Stateless by architectural design. Veritect holds no local state, no cached connection, no in-process schema store between runs. Every execution is a cold-start, single-shot structural assertion against a committed lock baseline.</div>
+        </div>
+
+        <div class="principle-card">
+          <div class="principle-title">Deterministic</div>
+          <div class="principle-desc">Canonicalized, sorted SHA-256 input guarantees identical fingerprints across all environments for structurally equivalent schemas. No environment-dependent variance. No false positives from connection-state or version differences.</div>
+        </div>
+
+        <div class="principle-card">
+          <div class="principle-title">Stateless</div>
+          <div class="principle-desc">No server-side component. No cloud dependency. No external API call from the runner. The entire execution graph is contained within a single CI step inside the client's own ephemeral virtual runner boundary.</div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SECTION 6 — CI SPECIFICATION
+  ============================================================ -->
+  <section id="ci-specification">
+    <div class="container">
+      <div class="section-label">Deployment Integration</div>
+      <div class="section-title">Continuous Integration Specification</div>
+      <p class="section-subtitle">A single GitHub Actions step is the complete integration surface. Drop it into any existing deployment workflow without configuration overhead, infrastructure provisioning, or runtime dependencies.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <div class="code-header-left">
+            <div class="query-dot"></div>
+            <div class="code-lang-badge">GitHub Actions &middot; YAML</div>
+          </div>
+          <button class="copy-btn" id="yaml-copy-btn" onclick="copyYaml()">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+            <span class="copy-label">Copy</span>
+          </button>
+        </div>
+        <div class="code-body">
+          <pre><span class="c-comment"># Insert this step into your deployment workflow.</span>
+<span class="c-comment"># Position: BEFORE your deploy / release step.</span>
+<span class="c-comment"># Schema mismatch triggers os.Exit(1) — hard pipeline block.</span>
+<span class="c-comment"># No configuration overhead. No infrastructure provisioning.</span>
+
+<span class="c-tag">- name:</span> <span class="c-string">Execute Veritect Schema Drift Guard</span>
+  <span class="c-key">uses:</span> <span class="c-string">veritect-labs/veritect@v1.0.0</span>
+  <span class="c-key">with:</span>
+    <span class="c-key">database_url:</span> <span class="c-var">${{ secrets.PRODUCTION_DATABASE_URL }}</span>
+    <span class="c-key">slack_webhook:</span> <span class="c-var">${{ secrets.SLACK_DEVOPS_ALERTS }}</span></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       FOOTER
+  ============================================================ -->
+  <footer>
+    <div class="container">
+      <div class="footer-inner">
+        <div class="footer-brand">Veritect</div>
+        <div class="footer-divider"></div>
+        <p>Licensed under the Business Source License (BSL) 1.1. Internal and non-commercial utilization is unrestricted and free of cost. Change date: 2030-05-31 &mdash; automatic transition to Apache-2.0. Copyright Veritect Labs. All rights reserved.</p>
+        <p>Veritect is a stateless schema drift detection engine. It does not process, transmit, log, or persist application data at any stage of execution. All structural introspection occurs exclusively within the client&rsquo;s virtual runner boundary under full data sovereignty. No schema metadata leaves the runner. No telemetry is emitted.</p>
+      </div>
+    </div>
+  </footer>
+
+  <!-- ============================================================
+       SCRIPTS
+  ============================================================ -->
+  <script>
+    // ── TYPEWRITER ────────────────────────────────────────────────
+    (function () {
+      const CMD = "curl -sSL https://github.com/veritect-labs/veritect/releases/latest/download/veritect -o veritect && chmod +x veritect && ./veritect";
+      const el     = document.getElementById("typewriter-text");
+      const cursor = document.getElementById("tw-cursor");
+      let i = 0;
+
+      function type() {
+        if (i < CMD.length) {
+          el.textContent += CMD.charAt(i);
+          i++;
+          setTimeout(type, 38 + Math.random() * 18);
+        } else {
+          // Typing complete — cursor stays blinking
+        }
+      }
+
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", () => setTimeout(type, 420));
+      } else {
+        setTimeout(type, 420);
+      }
+    })();
+
+    // ── COPY UTILITY ─────────────────────────────────────────────
+    function triggerCopy(text, btnId) {
+      const btn   = document.getElementById(btnId);
+      const label = btn.querySelector(".copy-label");
+
+      function markCopied() {
+        label.textContent = "Copied!";
+        btn.classList.add("copied");
+        setTimeout(function () {
+          label.textContent = "Copy";
+          btn.classList.remove("copied");
+        }, 2400);
+      }
+
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(markCopied).catch(function () {
+          fallbackCopy(text, markCopied);
+        });
+      } else {
+        fallbackCopy(text, markCopied);
+      }
+    }
+
+    function fallbackCopy(text, cb) {
+      var ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.cssText = "position:fixed;top:0;left:0;opacity:0;pointer-events:none;";
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      try { document.execCommand("copy"); cb(); } catch (e) {}
+      document.body.removeChild(ta);
+    }
+
+    // ── COPY TERMINAL ─────────────────────────────────────────────
+    function copyTerminal() {
+      triggerCopy(
+        "curl -sSL https://github.com/veritect-labs/veritect/releases/latest/download/veritect -o veritect && chmod +x veritect && ./veritect",
+        "terminal-copy-btn"
+      );
+    }
+
+    // ── COPY YAML ─────────────────────────────────────────────────
+    function copyYaml() {
+      triggerCopy(
+        "- name: Execute Veritect Schema Drift Guard\n  uses: veritect-labs/veritect@v1.0.0\n  with:\n    database_url: ${{ secrets.PRODUCTION_DATABASE_URL }}\n    slack_webhook: ${{ secrets.SLACK_DEVOPS_ALERTS }}",
+        "yaml-copy-btn"
+      );
+    }
+  </script>
+
+</body>
+</html>
