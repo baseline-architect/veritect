@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <link rel="icon" type="image/png" href="PLACEHOLDER">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Veritect | Stateless Database Schema Drift Engine</title>
   <style>
@@ -1392,7 +1393,7 @@
       <div class="nav-links">
         <a href="#ci-specification">Docs</a>
         <a href="#security-principles">Security</a>
-        <a href="#">GitHub</a>
+        <a href="https://github.com" target="_blank" rel="noopener noreferrer">GitHub</a>
       </div>
     </div>
   </nav>
@@ -1973,6 +1974,10 @@ c5e8f2a1d4b7c9e3...</span></pre>
     const logoImg = document.getElementById("nav-logo");
     if (logoImg) {
       logoImg.src = VERITECT_LOGO_B64;
+    }
+    const favicon = document.querySelector('link[rel="icon"]');
+    if (favicon) {
+      favicon.href = VERITECT_LOGO_B64;
     }
   };
 </script>
