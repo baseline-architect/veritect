@@ -1,0 +1,28 @@
+name: 'Veritect Schema Drift Guard'
+description: 'Stateless, zero-trust database schema drift detection engine for continuous integration workflows.'
+author: 'Veritect Labs'
+inputs:
+  database_url:
+    description: 'The secure connection string for the target PostgreSQL database environment.'
+    required: true
+  slack_webhook:
+    description: 'The internal webhook URL used to dispatch precise ChatOps structural diff notifications.'
+    required: false
+runs:
+  using: 'composite'
+  steps:
+    - name: Run Veritect Engine
+      shell: bash
+      run: |
+        if [ "$RUNNER_OS" = "Windows" ]; then
+          go run ./cmd/veritect
+        else
+          go run ./cmd/veritect
+        fi
+      env:
+        DATABASE_URL: ${{ inputs.database_url }}
+        SLACK_WEBHOOK: ${{ inputs.slack_webhook }}
+
+branding:
+  icon: 'shield'
+  color: 'green'
